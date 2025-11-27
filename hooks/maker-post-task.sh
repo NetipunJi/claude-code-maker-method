@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
 # MAKER Framework - PostToolUse Hook
 # Collects votes from step-executor subagents and determines winners
+#
+# IMPORTANT: Uses exit code 2 + stderr to reliably communicate with Claude
+# (exit 0 with JSON may not be visible to Claude due to known limitations)
 
 # Read JSON from stdin (Claude Code passes hook payload here)
 json=$(cat)
@@ -24,24 +25,39 @@ fi
 
 # === RED-FLAG DETECTION ===
 
-# Flag 1: Response too long (>3000 chars ≈ 750 tokens)
+# Flag 1: Response too long (>2800 chars ≈ 700 tokens, per MAKER paper)
 response_length=${#tool_response}
-if [ "$response_length" -gt 3000 ]; then
-  echo '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"RED FLAG: Response too long (>750 tokens) - discarded per MAKER framework. Spawn another subagent with identical input."}}'
-  exit 0
+if [ "$response_length" -gt 2800 ]; then
+  echo "🚩 MAKER RED FLAG: Response too long (${response_length} chars, limit: 700 tokens) - vote discarded. Spawn another step-executor with IDENTICAL input." >&2
+  exit 2
 fi
 
 # Flag 2: Check for valid JSON structure in response
 if ! echo "$tool_response" | jq -e '.' > /dev/null 2>&1; then
-  echo '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"RED FLAG: Malformed JSON response - discarded per MAKER framework. Spawn another subagent with identical input."}}'
-  exit 0
+  echo "🚩 MAKER RED FLAG: Malformed JSON response - vote discarded. Spawn another step-executor with IDENTICAL input." >&2
+  exit 2
 fi
 
 # Flag 3: Check for error in response
 if echo "$tool_response" | jq -e '.error' > /dev/null 2>&1; then
   error_msg=$(echo "$tool_response" | jq -r '.error')
-  echo "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"RED FLAG: Subagent reported error: $error_msg - discarded. Spawn another subagent with identical input.\"}}"
-  exit 0
+  echo "🚩 MAKER RED FLAG: Subagent error: ${error_msg} - vote discarded. Spawn another step-executor with IDENTICAL input." >&2
+  exit 2
+fi
+
+# Flag 4: Schema validation - require step_id and (action OR result)
+if ! echo "$tool_response" | jq -e '.step_id' > /dev/null 2>&1; then
+  echo "🚩 MAKER RED FLAG: Missing required field 'step_id' - vote discarded. Spawn another step-executor with IDENTICAL input." >&2
+  exit 2
+fi
+
+# Must have at least one of: action or result
+has_action=$(echo "$tool_response" | jq -e '.action' > /dev/null 2>&1 && echo "yes" || echo "no")
+has_result=$(echo "$tool_response" | jq -e '.result' > /dev/null 2>&1 && echo "yes" || echo "no")
+
+if [ "$has_action" = "no" ] && [ "$has_result" = "no" ]; then
+  echo "🚩 MAKER RED FLAG: Missing required fields 'action' and 'result' - vote discarded. Spawn another step-executor with IDENTICAL input." >&2
+  exit 2
 fi
 
 # === EXTRACT STEP ID ===
@@ -51,7 +67,7 @@ step_id=$(echo "$tool_response" | jq -r '.step_id // empty')
 
 if [ -z "$step_id" ]; then
   # Fallback: extract from tool_input prompt
-  step_id=$(echo "$json" | jq -r '.tool_input.prompt // empty' | grep -oE 'step_[0-9]+' | head -1 || echo "")
+  step_id=$(echo "$json" | jq -r '.tool_input.prompt // empty' | grep -oE 'step_[0-9]+' | head -1 || true)
 fi
 
 if [ -z "$step_id" ]; then
@@ -79,16 +95,28 @@ else
   winner_result="{\"decided\":false,\"votes\":$vote_count}"
 fi
 
-# Parse result and return appropriate feedback
+# Parse result and return feedback via stderr (exit 2 ensures Claude sees it)
 if echo "$winner_result" | jq -e '.decided == true' > /dev/null 2>&1; then
   votes=$(echo "$winner_result" | jq -r '.votes')
   margin=$(echo "$winner_result" | jq -r '.margin')
   winner=$(echo "$winner_result" | jq -c '.winner')
-  echo "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"MAKER VOTE DECIDED: Winner confirmed with margin $margin (total votes: $votes). Apply this action and proceed to next step. Winner: $winner\"}}"
+
+  # Update state tracking (if maker_state.py exists)
+  if [ -f "$SCRIPT_DIR/maker_state.py" ] && [ -n "$session_id" ] && [ -n "$step_id" ]; then
+    "$SCRIPT_DIR/maker_state.py" "$session_id" update "$step_id" "decided" "$winner" "$votes" "$margin" 0 2>/dev/null || true
+  fi
+
+  echo "✅ MAKER VOTE DECIDED: Winner confirmed! Margin: ${margin}, Total votes: ${votes}. Apply this action and proceed to next step. Winner: ${winner}" >&2
+  exit 2
 else
   vote_count=$(echo "$winner_result" | jq -r '.votes // 0')
   candidates=$(echo "$winner_result" | jq -r '.candidates // 1')
-  echo "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"MAKER VOTE PENDING: $vote_count votes collected, $candidates unique candidates, no K-ahead winner yet. Spawn another step-executor with IDENTICAL input.\"}}"
-fi
 
-exit 0
+  # Track voting state (if maker_state.py exists)
+  if [ -f "$SCRIPT_DIR/maker_state.py" ] && [ -n "$session_id" ] && [ -n "$step_id" ]; then
+    "$SCRIPT_DIR/maker_state.py" "$session_id" update "$step_id" "voting" "null" "$vote_count" 0 0 2>/dev/null || true
+  fi
+
+  echo "⏳ MAKER VOTE PENDING: ${vote_count} votes collected, ${candidates} unique candidate(s). Need K-ahead (margin ≥ 3). Spawn another step-executor with IDENTICAL input." >&2
+  exit 2
+fi
