@@ -1,27 +1,69 @@
-Execute task using MAKER framework (Massively Decomposed Agentic Process).
+High-reliability task execution using MAKER framework (Massively Decomposed Agentic Process).
 
-Usage: /maker <task_description>
+**Task:** $ARGUMENTS
+
+---
+
+## Phase 1: Decompose
+
+Break the task into atomic subtasks. Output:
 ```
-Steps:
-1. Decompose: Use orchestrator agent to break into minimal subtasks
-2. Execute: For each subtask, spawn 3+ parallel step-executor subagents
-3. Vote: Collect outputs, apply first-to-ahead-by-3 voting
-4. Red-flag: Discard overly long or malformed responses
-5. Aggregate: Combine verified step outputs into final result
-
-$ARGUMENTS
+Step 1: [description] → Expected: [outcome]
+Step 2: [description] → Expected: [outcome]
+...
 ```
 
-#### **Phase 5: Parallel Execution Pattern**
+---
 
-Each subagent operates in its own context, preventing pollution of the main conversation and keeping it focused on high-level objectives.
+## Phase 2: Execute with Voting
 
-Run multiple autonomous coding agents simultaneously... Each agent tackles different components while maintaining full context awareness.
+For **each step**:
 
-For parallel voting, use explicit subagent spawning:
+1. Spawn a `step-executor` subagent:
+   ```
+   Use step-executor subagent: "Execute step_1: [description]. Output JSON: {\"step_id\": \"step_1\", \"action\": \"...\", \"result\": \"...\"}"
+   ```
+
+2. **Check the hook feedback** in the response:
+   - `MAKER VOTE DECIDED: Winner confirmed` → Apply action, proceed to next step
+   - `MAKER VOTE PENDING: N votes collected` → Spawn another step-executor with **identical** input
+   - `RED FLAG: ... discarded` → That vote was invalid, spawn another
+
+3. Repeat until you see `VOTE DECIDED` (max 9 attempts per step)
+
+4. **Important:** Use the exact same prompt for all voting attempts on the same step
+
+---
+
+## Phase 3: Report
+
+After all steps complete:
+
 ```
-Use 3 parallel subagents to execute step {step_id}:
-- Each subagent runs step-executor with identical input
-- Collect all outputs for voting
-- Winner requires K=3 margin
+MAKER Execution Report
+======================
+Total steps: N
+Successful votes: N/N
+
+Step 1: ✓ (votes: 3, margin: 3)
+Step 2: ✓ (votes: 5, margin: 3, red-flagged: 1)
+Step 3: ✗ (failed after 9 attempts)
+...
+
+Red-flagged outputs: N
+Final result: [success/failed at step N]
 ```
+
+---
+
+## Rules
+
+- Wait for `VOTE DECIDED` before applying any action
+- The hook automatically tracks votes - you just spawn subagents
+- Each subagent call for the same step must use **identical prompts**
+- Stop if any step shows `VOTE PENDING` after 9 subagent calls
+- Never skip voting - every step needs minimum 3 matching votes
+
+---
+
+Begin with Phase 1 decomposition now.
