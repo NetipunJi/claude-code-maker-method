@@ -18,9 +18,27 @@ Each step must be:
 
 ```
 Step 1: [description] → Expected: [verifiable outcome]
-Step 2: [description] → Expected: [verifiable outcome]
+Step 2: [CRITICAL] [description] → Expected: [verifiable outcome]
+Step 3: [description] → Expected: [verifiable outcome]
 ...
 ```
+
+## Marking Critical Steps
+
+Mark a step as **[CRITICAL]** when it requires voting consensus due to:
+- **High-impact operations**: Destructive changes (deletes, overwrites, schema migrations)
+- **Security-sensitive**: Auth logic, permissions, API keys, crypto operations
+- **Complex refactoring**: Multi-file changes, architectural modifications
+- **Irreversible actions**: Database operations, external API calls, deployments
+
+**Default to regular steps** for:
+- Simple file edits
+- Adding new functions/features
+- Configuration changes
+- Documentation updates
+- Test file modifications
+
+**Rule of thumb**: If the step has obvious correctness and low blast radius, don't mark it critical.
 
 ## Dependencies
 

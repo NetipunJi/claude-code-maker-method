@@ -19,26 +19,47 @@ For complex tasks (>20 steps) or when optimizing cost/reliability:
 
 ## Phase 1: Decompose
 
-Break the task into atomic subtasks using `orchestrator` or directly:
+Break the task into atomic subtasks using `orchestrator`:
 
 ```
 Step 1: [description] → Expected: [outcome]
-Step 2: [description] → Expected: [outcome]
+Step 2: [CRITICAL] [description] → Expected: [outcome]
+Step 3: [description] → Expected: [outcome]
 ...
 ```
 
 **Atomic means:** Each step is one file edit, one command, one function change.
 
+**Mark steps as [CRITICAL]** when they:
+- Have high impact (destructive operations, security changes, multi-file refactoring)
+- Need voting consensus for reliability
+- Regular steps execute once; critical steps use parallel voting
+
 ---
 
-## Phase 2: Execute with Parallel Voting
+## Phase 2: Execute with Conditional Voting
 
-For **each step**:
+For **each step**, choose execution mode based on criticality:
 
-1. **Parallel voting (PREFERRED):** Spawn K=3 `step-executor` subagents simultaneously:
+### A. Regular Steps (Default)
+For steps **without [CRITICAL]** marker:
+
+1. Spawn **1 single** `step-executor` subagent:
+   ```
+   "Execute step_1: [description]. Output JSON: {\"step_id\": \"step_1\", \"action\": \"...\", \"result\": \"...\"}"
+   ```
+
+2. Review output, apply action directly, proceed to next step
+
+3. **No voting needed** - faster execution for low-risk operations
+
+### B. Critical Steps (Voting Mode)
+For steps **marked [CRITICAL]**:
+
+1. **Parallel voting:** Spawn K=3 `step-executor` subagents simultaneously:
    ```
    In a single message with 3 Task tool calls, all with identical prompts:
-   "Execute step_1: [description]. Output JSON: {\"step_id\": \"step_1\", \"action\": \"...\", \"result\": \"...\"}"
+   "Execute step_2: [CRITICAL] [description]. Output JSON: {\"step_id\": \"step_2\", \"action\": \"...\", \"result\": \"...\"}"
    ```
 
 2. **Check the hook feedback** after each batch:
@@ -46,11 +67,11 @@ For **each step**:
    - `⏳ MAKER VOTE PENDING` → Spawn more step-executors with **identical** input
    - `🚩 MAKER RED FLAG` → That vote was invalid (too long, malformed, etc.), spawn another
 
-3. Continue until `VOTE DECIDED` (max 9 total attempts per step)
+3. Continue until `VOTE DECIDED` (max 9 total attempts per critical step)
 
 4. **Critical:** All voting attempts for the same step must use **byte-for-byte identical prompts**
 
-**Performance optimization:** Start with 3 parallel executors. If voting isn't decided, spawn 2 more. Repeat until winner emerges.
+**Performance optimization:** Use voting selectively to balance speed and reliability.
 
 ---
 

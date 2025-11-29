@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # MAKER Framework - PostToolUse Hook
-# Collects votes from step-executor subagents and determines winners
+# Conditionally enables voting for [CRITICAL] steps only
+# Regular steps pass through with basic validation
 #
 # IMPORTANT: Uses exit code 2 + stderr to reliably communicate with Claude
 # (exit 0 with JSON may not be visible to Claude due to known limitations)
@@ -22,6 +23,32 @@ fi
 if [ -z "$tool_response" ] || [ "$tool_response" = "null" ]; then
   exit 0
 fi
+
+# === CONDITIONAL VOTING CHECK ===
+
+# Check if this is a CRITICAL step (requires voting)
+tool_input_prompt=$(echo "$json" | jq -r '.tool_input.prompt // empty')
+is_critical=$(echo "$tool_input_prompt" | grep -q '\[CRITICAL\]' && echo "yes" || echo "no")
+
+# For NON-CRITICAL steps: validate and pass through without voting
+if [ "$is_critical" = "no" ]; then
+  # Still do basic validation
+  if ! echo "$tool_response" | jq -e '.' > /dev/null 2>&1; then
+    echo "⚠️ Warning: Malformed JSON in non-critical step response" >&2
+    exit 2
+  fi
+
+  # Check for step_id (required even for non-voting)
+  if ! echo "$tool_response" | jq -e '.step_id' > /dev/null 2>&1; then
+    echo "⚠️ Warning: Missing step_id in response" >&2
+    exit 2
+  fi
+
+  # Pass through without voting - just exit cleanly
+  exit 0
+fi
+
+# From here on: CRITICAL step (voting mode enabled)
 
 # === RED-FLAG DETECTION ===
 

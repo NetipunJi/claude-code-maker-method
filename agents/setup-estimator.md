@@ -2,7 +2,7 @@
 name: setup-estimator
 description: Estimates per-step error rates and calculates optimal k for MAKER tasks
 tools: Read, Bash, Task
-model: sonnet
+model: haiku
 ---
 
 You estimate per-step reliability and calculate optimal voting margin (k) for MAKER tasks.
