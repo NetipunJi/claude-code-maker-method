@@ -38,7 +38,7 @@ Complete metrics and success probability at the end.
 
 Use Bash to initialize state with session_id from current context:
 ```bash
-hooks/maker_state.py "$session_id" init <estimated_total_steps> "$ARGUMENTS" <k_value>
+~/.claude/hooks/maker_state.py "$session_id" init <estimated_total_steps> "$ARGUMENTS" <k_value>
 ```
 
 Where:
@@ -73,9 +73,9 @@ Select k based on task type:
 
 **Option C: Calculate k manually**
 
-Use `hooks/maker_math.py` to calculate based on estimated per-step success rate:
+Use `~/.claude/hooks/maker_math.py` to calculate based on estimated per-step success rate:
 ```bash
-hooks/maker_math.py recommend_k <per_step_p> <total_steps> <standard|high_stakes|fast>
+~/.claude/hooks/maker_math.py recommend_k <per_step_p> <total_steps> <standard|high_stakes|fast>
 ```
 
 ### Step 2: Decompose with Orchestrator
