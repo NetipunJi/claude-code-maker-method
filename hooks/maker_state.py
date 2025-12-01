@@ -82,6 +82,13 @@ class MAKERState:
         self._log_metric(step_data)
         return state
 
+    def get_k_value(self) -> int:
+        """Get the k value for this session."""
+        state = self.load()
+        if not state:
+            return 3  # Default fallback
+        return state.get("k", 3)
+
     def get_resume_point(self) -> Optional[Dict]:
         """Get information about where to resume execution."""
         state = self.load()
@@ -165,6 +172,7 @@ def main():
                 "init": "maker_state.py <session_id> init <total_steps> <task_desc> [k]",
                 "update": "maker_state.py <session_id> update <step_id> <status> [winner_json] [votes] [margin] [red_flags]",
                 "load": "maker_state.py <session_id> load",
+                "get-k": "maker_state.py <session_id> get-k",
                 "resume": "maker_state.py <session_id> resume",
                 "report": "maker_state.py <session_id> report",
                 "complete": "maker_state.py <session_id> complete [success]"
@@ -197,6 +205,10 @@ def main():
         elif command == "load":
             result = state.load()
             print(json.dumps(result))
+
+        elif command == "get-k":
+            k = state.get_k_value()
+            print(json.dumps({"k": k}))
 
         elif command == "resume":
             result = state.get_resume_point()

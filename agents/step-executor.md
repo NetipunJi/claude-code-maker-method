@@ -2,7 +2,7 @@
 name: step-executor
 description: Executes ONE atomic step for MAKER voting. Always include step_id in output.
 tools: Read, Write, Edit, Bash
-model: sonnet
+model: haiku
 temperature: 0.1
 ---
 

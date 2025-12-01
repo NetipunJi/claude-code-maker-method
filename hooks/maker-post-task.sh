@@ -113,9 +113,16 @@ echo "$tool_response" | jq -c '.' >> "$VOTE_DIR/votes.jsonl"
 # Get script directory for check_winner.py
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Retrieve k value from state (if available), otherwise use default k=3
+k_value=3
+if [ -f "$SCRIPT_DIR/maker_state.py" ] && [ -n "$session_id" ]; then
+  k_result=$("$SCRIPT_DIR/maker_state.py" "$session_id" get-k 2>/dev/null || echo '{"k":3}')
+  k_value=$(echo "$k_result" | jq -r '.k // 3')
+fi
+
 # Check for winner
 if [ -f "$SCRIPT_DIR/check_winner.py" ]; then
-  winner_result=$("$SCRIPT_DIR/check_winner.py" "$VOTE_DIR" 2>/dev/null || echo '{"decided":false}')
+  winner_result=$("$SCRIPT_DIR/check_winner.py" "$VOTE_DIR" "--k=$k_value" 2>/dev/null || echo '{"decided":false}')
 else
   # Fallback: simple count if Python script not found
   vote_count=$(wc -l < "$VOTE_DIR/votes.jsonl" | tr -d ' ')
@@ -144,6 +151,8 @@ else
     "$SCRIPT_DIR/maker_state.py" "$session_id" update "$step_id" "voting" "null" "$vote_count" 0 0 2>/dev/null || true
   fi
 
-  echo "⏳ MAKER VOTE PENDING: ${vote_count} votes collected, ${candidates} unique candidate(s). Need K-ahead (margin ≥ 3). Spawn another step-executor with IDENTICAL input." >&2
+  # Get k from result or use default
+  result_k=$(echo "$winner_result" | jq -r '.k // 3')
+  echo "⏳ MAKER VOTE PENDING: ${vote_count} votes collected, ${candidates} unique candidate(s). Need k-ahead (margin ≥ ${result_k}). Spawn another step-executor with IDENTICAL input." >&2
   exit 2
 fi

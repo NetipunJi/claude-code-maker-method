@@ -1,128 +1,158 @@
-High-reliability task execution using MAKER framework (Massively Decomposed Agentic Process).
+**MAKER Framework: High-Reliability Task Execution**
+
+Automated orchestrator for complex tasks using Massively Decomposed Agentic Process with conditional voting.
 
 **Task:** $ARGUMENTS
 
 ---
 
-## Phase 0: Setup (Optional but Recommended)
+I'll execute this task using the MAKER framework for near-perfect reliability. Here's how it works:
 
-For complex tasks (>20 steps) or when optimizing cost/reliability:
+## 🔄 Automated Workflow
 
-1. Use `setup-estimator` subagent to calculate optimal k:
-   ```
-   Estimate task parameters: total steps, complexity, recommended k value
-   ```
+### Phase 1: Task Decomposition
+Using the `orchestrator` agent to break down the task into atomic steps...
 
-2. For quick tasks, use defaults: k=3, 700-token limit
+### Phase 2: Conditional Execution
+- **Regular steps**: Execute once with single step-executor
+- **[CRITICAL] steps**: Use parallel voting with k-ahead margin consensus (k determined by setup or default k=3)
+
+### Phase 3: Automatic Vote Tracking
+The hook system will provide real-time feedback:
+- ✅ VOTE DECIDED → Winner confirmed, applying action
+- ⏳ VOTE PENDING → More votes needed
+- 🚩 RED FLAG → Invalid response, retrying
+
+### Phase 4: Final Report
+Complete metrics and success probability at the end.
 
 ---
 
-## Phase 1: Decompose
+## 📋 Execution Instructions
 
-Break the task into atomic subtasks using `orchestrator`:
+**You must follow this automated workflow:**
+
+### Step 1: Initialize State and Determine k Value
+
+**First, initialize the MAKER state** (required for dynamic k):
+
+Use Bash to initialize state with session_id from current context:
+```bash
+hooks/maker_state.py "$session_id" init <estimated_total_steps> "$ARGUMENTS" <k_value>
+```
+
+Where:
+- `estimated_total_steps`: Your best guess (e.g., 5, 10, 20...)
+- `k_value`: The margin threshold to use (see options below)
+
+**Option A: Use Setup Estimator (Recommended for complex tasks)**
+
+Spawn the `setup-estimator` agent to calculate optimal k:
+```
+Use Task tool with subagent_type='setup-estimator':
+"Analyze the task '$ARGUMENTS' and recommend optimal k value based on:
+- Estimated total steps
+- Task complexity (simple/medium/complex)
+- Expected per-step success rate
+Output JSON with recommended_k, reasoning, and cost estimates."
+```
+
+Extract the `recommended_k` from the response and use it when initializing state.
+
+**Option B: Use Default k=3 (Fast path)**
+
+Skip setup-estimator and use k=3 (provides 99%+ reliability for p>0.7).
+
+Initialize state with k=3.
+
+### Step 2: Decompose with Orchestrator
+
+Spawn the `orchestrator` agent to break down the task:
 
 ```
+Use Task tool with subagent_type='orchestrator':
+"Decompose this task into atomic steps: $ARGUMENTS
+
+Output format:
 Step 1: [description] → Expected: [outcome]
 Step 2: [CRITICAL] [description] → Expected: [outcome]
-Step 3: [description] → Expected: [outcome]
 ...
+
+Mark steps as [CRITICAL] only if they require voting consensus (destructive ops, security-sensitive, complex refactoring)."
 ```
 
-**Atomic means:** Each step is one file edit, one command, one function change.
+### Step 3: Execute Steps with Conditional Voting
 
-**Mark steps as [CRITICAL]** when they:
-- Have high impact (destructive operations, security changes, multi-file refactoring)
-- Need voting consensus for reliability
-- Regular steps execute once; critical steps use parallel voting
+For each step returned by the orchestrator:
 
----
-
-## Phase 2: Execute with Conditional Voting
-
-For **each step**, choose execution mode based on criticality:
-
-### A. Regular Steps (Default)
-For steps **without [CRITICAL]** marker:
-
-1. Spawn **1 single** `step-executor` subagent:
+**A. Regular Steps (no [CRITICAL] marker):**
+1. Spawn 1 step-executor agent:
    ```
-   "Execute step_1: [description]. Output JSON: {\"step_id\": \"step_1\", \"action\": \"...\", \"result\": \"...\"}"
+   Use Task tool with subagent_type='step-executor':
+   "Execute step_N: [exact description from orchestrator]. Output JSON: {\"step_id\": \"step_N\", \"action\": \"what you did\", \"result\": \"outcome\"}"
    ```
+2. Review the JSON response
+3. Apply the action to the codebase/environment
+4. Proceed to next step
 
-2. Review output, apply action directly, proceed to next step
-
-3. **No voting needed** - faster execution for low-risk operations
-
-### B. Critical Steps (Voting Mode)
-For steps **marked [CRITICAL]**:
-
-1. **Parallel voting:** Spawn K=3 `step-executor` subagents simultaneously:
+**B. Critical Steps (marked [CRITICAL]):**
+1. Spawn **k** step-executor agents **in parallel** (single message with k Task calls):
    ```
-   In a single message with 3 Task tool calls, all with identical prompts:
-   "Execute step_2: [CRITICAL] [description]. Output JSON: {\"step_id\": \"step_2\", \"action\": \"...\", \"result\": \"...\"}"
+   In ONE message, use Task tool k times with IDENTICAL prompts:
+   "Execute step_N: [CRITICAL] [exact description]. Output JSON: {\"step_id\": \"step_N\", \"action\": \"...\", \"result\": \"...\"}"
+
+   Where k = the value you initialized in state (from setup-estimator or default k=3)
    ```
 
-2. **Check the hook feedback** after each batch:
-   - `✅ MAKER VOTE DECIDED` → Apply the winner action, proceed to next step
-   - `⏳ MAKER VOTE PENDING` → Spawn more step-executors with **identical** input
-   - `🚩 MAKER RED FLAG` → That vote was invalid (too long, malformed, etc.), spawn another
+2. **Wait for hook feedback** after spawning:
+   - If you see `✅ MAKER VOTE DECIDED` → Extract winner from feedback, apply action, proceed
+   - If you see `⏳ MAKER VOTE PENDING (need margin ≥ k)` → Spawn k more step-executors with IDENTICAL prompt
+   - If you see `🚩 MAKER RED FLAG` → That response was invalid, spawn another with IDENTICAL prompt
 
-3. Continue until `VOTE DECIDED` (max 9 total attempts per critical step)
+3. Repeat until `VOTE DECIDED` (max 3k total attempts, allowing 3 rounds of k votes)
 
-4. **Critical:** All voting attempts for the same step must use **byte-for-byte identical prompts**
+4. **CRITICAL RULE:** Every voting attempt for the same step MUST use byte-for-byte identical prompts
 
-**Performance optimization:** Use voting selectively to balance speed and reliability.
+5. **Dynamic k**: The hook system now retrieves k from state automatically. The k value in feedback messages will match what you initialized.
 
----
+### Step 4: Track Progress
 
-## Phase 3: State & Metrics
+Use TodoWrite to track step execution:
+- Create todo for each step from orchestrator
+- Mark in_progress when executing
+- Mark completed when action applied
+- This helps with resumability if interrupted
 
-The system automatically tracks:
-- Vote counts and margins per step
-- Red-flagged responses
-- Execution progress (resumable if interrupted)
-- Cost estimates
+### Step 5: Generate Final Report
 
-Access metrics:
-```bash
-~/.claude/hooks/maker_state.py <session_id> report
-```
-
----
-
-## Phase 4: Report
-
-After all steps complete:
+After all steps complete, generate report:
 
 ```
 MAKER Execution Report
 ======================
-Total steps: N
-Successful votes: N/N
+Session: [session_id]
+Task: $ARGUMENTS
+Status: [success/failed]
 
-Step 1: ✓ (votes: 3, margin: 3, red-flags: 0)
-Step 2: ✓ (votes: 5, margin: 3, red-flags: 1)
-Step 3: ✗ (failed after 9 attempts)
+Total steps: N
+Regular steps: N (executed once)
+Critical steps: N (with voting)
+Completed: N
+Failed: N
+Total votes cast: N
+Red-flagged votes: N
+
+Step Details:
+✓ step_1: regular (no voting)
+✓ step_2: [CRITICAL] votes=5, margin=3, red_flags=1
+✓ step_3: regular (no voting)
 ...
 
-Total votes cast: N
-Red-flagged outputs: N
-Task success probability: 99.X%
-Final result: [success/failed at step N]
+Task success probability: 99.XX%
 ```
 
 ---
 
-## Rules
+## 🎯 Start Execution Now
 
-- **Parallel execution:** Spawn multiple step-executors per step for faster voting
-- **Identical prompts:** Every vote for the same step must use exact same prompt
-- **Wait for winner:** Only apply actions after `VOTE DECIDED`
-- **Red flags mean retry:** Schema errors, long responses (>700 tokens), malformed JSON
-- **Never skip voting:** Every step needs K-ahead consensus (default: margin ≥ 3)
-- **Temperature decorrelation:** step-executor uses temp=0.1 to reduce correlated failures
-- **State persistence:** Progress is automatically saved, can resume if interrupted
-
----
-
-Begin with Phase 1 decomposition now.
+Begin by spawning the orchestrator agent to decompose the task...
