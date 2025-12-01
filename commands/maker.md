@@ -36,14 +36,25 @@ Complete metrics and success probability at the end.
 
 **First, initialize the MAKER state** (required for dynamic k):
 
-Use Bash to initialize state with session_id from current context:
+**About `$session_id`**: Claude Code provides a built-in `$session_id` environment variable that uniquely identifies each conversation session. This is used to track MAKER execution state across the session.
+
+Use Bash to initialize state:
 ```bash
+# Verify hooks are installed
+if [ ! -f ~/.claude/hooks/maker_state.py ]; then
+  echo "Error: MAKER hooks not found at ~/.claude/hooks/"
+  echo "Please install hooks from the repository first."
+  exit 1
+fi
+
+# Initialize state with session_id from Claude Code context
 ~/.claude/hooks/maker_state.py "$session_id" init <estimated_total_steps> "$ARGUMENTS" <k_value>
 ```
 
 Where:
 - `estimated_total_steps`: Your best guess (e.g., 5, 10, 20...)
 - `k_value`: The margin threshold to use (see options below)
+- `$session_id`: Built-in Claude Code variable (automatically available)
 
 **Choose k value based on task requirements:**
 
@@ -118,15 +129,32 @@ For each step returned by the orchestrator:
    ```
 
 2. **Wait for hook feedback** after spawning:
-   - If you see `✅ MAKER VOTE DECIDED` → Extract winner from feedback, apply action, proceed
+   - If you see `✅ MAKER VOTE DECIDED` → Extract winner, apply action, cleanup votes, proceed (see step 3)
    - If you see `⏳ MAKER VOTE PENDING (need margin ≥ k)` → Spawn k more step-executors with IDENTICAL prompt
    - If you see `🚩 MAKER RED FLAG` → That response was invalid, spawn another with IDENTICAL prompt
 
-3. Repeat until `VOTE DECIDED` (max 3k total attempts, allowing 3 rounds of k votes)
+3. **When vote is decided, extract and apply winner**:
+   ```
+   Hook feedback format:
+   ✅ MAKER VOTE DECIDED: Winner confirmed! Margin: 3, Total votes: 5. Apply this action and proceed to next step. Winner: {"step_id":"step_2","action":"do X","result":"outcome Y"}
 
-4. **CRITICAL RULE:** Every voting attempt for the same step MUST use byte-for-byte identical prompts
+   To extract the winner JSON:
+   - The winner JSON appears after "Winner: " in the feedback
+   - Parse the JSON to get the action and result
+   - Apply the action described in the winner
+   - Verify the action was applied successfully
 
-5. **Dynamic k**: The hook system now retrieves k from state automatically. The k value in feedback messages will match what you initialized.
+   Then cleanup votes for this step:
+   ~/.claude/hooks/check_winner.py "/tmp/maker-votes/$session_id/step_N" --clear
+   ```
+
+4. **State updates happen automatically**: The `maker-post-task.sh` hook automatically updates state via `maker_state.py` when votes are collected or decided. You don't need to manually update state during execution.
+
+5. Repeat until `VOTE DECIDED` (max 3k total attempts, allowing 3 rounds of k votes)
+
+6. **CRITICAL RULE:** Every voting attempt for the same step MUST use byte-for-byte identical prompts
+
+7. **Dynamic k**: The hook system retrieves k from state automatically. The k value in feedback messages will match what you initialized.
 
 ### Step 4: Track Progress
 
@@ -138,31 +166,115 @@ Use TodoWrite to track step execution:
 
 ### Step 5: Generate Final Report
 
-After all steps complete, generate report:
+After all steps complete, mark execution as complete and generate report:
 
+```bash
+# Mark execution as complete (success=true or false)
+~/.claude/hooks/maker_state.py "$session_id" complete true
+
+# Generate and display the final report
+~/.claude/hooks/maker_state.py "$session_id" report
+```
+
+The report will show:
+- Session ID and task description
+- Total steps, completed, failed
+- Total votes cast and red-flagged votes
+- Detailed breakdown per step (regular vs critical, vote counts, margins)
+- Start and completion timestamps
+
+**Example output:**
 ```
 MAKER Execution Report
-======================
-Session: [session_id]
-Task: $ARGUMENTS
-Status: [success/failed]
+==================================================
+Session: abc123def456
+Task: Implement user authentication system
+Status: success
 
-Total steps: N
-Regular steps: N (executed once)
-Critical steps: N (with voting)
-Completed: N
-Failed: N
-Total votes cast: N
-Red-flagged votes: N
+Total steps: 5
+Completed: 5
+Failed: 0
+Total votes cast: 15
+Red-flagged votes: 1
 
 Step Details:
-✓ step_1: regular (no voting)
-✓ step_2: [CRITICAL] votes=5, margin=3, red_flags=1
-✓ step_3: regular (no voting)
-...
+--------------------------------------------------
+✓ step_1: votes=0, margin=0, red_flags=0
+✓ step_2: votes=5, margin=3, red_flags=1
+✓ step_3: votes=0, margin=0, red_flags=0
+✓ step_4: votes=5, margin=3, red_flags=0
+✓ step_5: votes=5, margin=4, red_flags=0
 
-Task success probability: 99.XX%
+Started: 2025-12-01T10:30:00
+Completed: 2025-12-01T10:45:00
 ```
+
+**Calculate task success probability (optional)**:
+```bash
+# If you want to calculate theoretical reliability
+~/.claude/hooks/maker_math.py full_probability <p> <k> <total_steps>
+
+# Example: p=0.7, k=3, steps=5
+~/.claude/hooks/maker_math.py full_probability 0.7 3 5
+# Output: {"probability": 0.9953}
+```
+
+---
+
+## 🔧 Troubleshooting
+
+### Error: "MAKER hooks not found at ~/.claude/hooks/"
+**Cause**: Hook scripts aren't installed or not at expected location
+**Fix**:
+```bash
+# Check if hooks exist
+ls -la ~/.claude/hooks/maker*.py
+
+# If missing, copy from repository
+cp hooks/*.py ~/.claude/hooks/
+chmod +x ~/.claude/hooks/*.py
+```
+
+### Error: "No k value found in state"
+**Cause**: State wasn't initialized before voting, or initialization failed
+**Fix**:
+```bash
+# Check current state
+~/.claude/hooks/maker_state.py "$session_id" load
+
+# Re-initialize if needed
+~/.claude/hooks/maker_state.py "$session_id" init <steps> "<task>" <k_value>
+```
+
+### Error: "Malformed JSON response"
+**Cause**: Step-executor didn't return valid JSON
+**Result**: Hook automatically red-flags this vote
+**Action**: Spawn another step-executor with identical prompt (hook guides you)
+
+### Vote stuck in PENDING state
+**Cause**: Not enough margin between candidates
+**Check**:
+```bash
+# See current vote counts
+cat /tmp/maker-votes/$session_id/step_N/votes.jsonl | wc -l
+```
+**Fix**: Keep spawning step-executors until k-ahead margin is reached
+
+### Session state file corrupted
+**Cause**: Concurrent writes or disk issues
+**Fix**:
+```bash
+# Check state file
+cat /tmp/maker-state/$session_id/execution.json | jq .
+
+# If corrupted, reinitialize (loses progress!)
+rm -rf /tmp/maker-state/$session_id
+~/.claude/hooks/maker_state.py "$session_id" init <steps> "<task>" <k>
+```
+
+### Hook feedback not appearing
+**Cause**: Hook script not configured in Claude Code settings
+**Fix**: Verify PostToolUse hook is enabled and pointing to `maker-post-task.sh`
 
 ---
 
