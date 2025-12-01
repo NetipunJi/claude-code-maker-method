@@ -56,8 +56,8 @@ All gaps identified between the implementation and the MAKER paper have been suc
 ### ✅ Gap 5: Parallel Execution Not Specified
 **Issue:** Sequential voting instead of parallel
 
-**Fix:** Updated `commands/maker.md:38-53` to:
-- Recommend spawning k=3 step-executors simultaneously
+**Fix:** Updated `commands/maker.md` to:
+- Recommend spawning k step-executors simultaneously in parallel
 - Provide batch voting instructions
 - Optimize for faster convergence
 

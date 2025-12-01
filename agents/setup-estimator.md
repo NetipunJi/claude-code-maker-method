@@ -43,10 +43,11 @@ Expected votes per step ≈ (k + runner_up_votes)
 Total cost ≈ expected_votes × s × cost_per_call
 ```
 
-Recommend k based on:
-- k=3: Standard (99%+ reliability for p>0.7)
-- k=5: High-stakes (99.9%+ reliability for p>0.5-0.7)
-- k=1: Fast/cheap (90%+ reliability for p>0.8)
+Recommend k based on task requirements and measured per-step success rate:
+- k=1: Simple tasks, high confidence (90%+ reliability for p>0.8)
+- k=3: Moderate complexity, balanced (99%+ reliability for p>0.7)
+- k=5: High-stakes, maximum reliability (99.9%+ reliability for p>0.5-0.7)
+- k=7+: Ultra-critical or very low success rate (p<0.5)
 
 ### Output Format
 
@@ -64,9 +65,9 @@ Recommend k based on:
 
 ## Simplified Mode
 
-If full estimation is impractical, use heuristics:
-- Simple tasks (< 20 steps, obvious correct answers): k=3
+If full estimation is impractical, provide k recommendations based on task analysis:
+- Simple tasks (< 20 steps, obvious correct answers): k=1 to k=3
 - Medium tasks (20-100 steps, some ambiguity): k=3 to k=5
 - Complex tasks (> 100 steps, high ambiguity): k=5 to k=7
 
-Always output JSON with your recommendation and reasoning.
+Always output JSON with your recommendation, reasoning, and explain the reliability/cost tradeoff.

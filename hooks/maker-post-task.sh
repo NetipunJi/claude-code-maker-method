@@ -113,11 +113,20 @@ echo "$tool_response" | jq -c '.' >> "$VOTE_DIR/votes.jsonl"
 # Get script directory for check_winner.py
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Retrieve k value from state (if available), otherwise use default k=3
-k_value=3
+# Retrieve k value from state (REQUIRED - no default fallback)
 if [ -f "$SCRIPT_DIR/maker_state.py" ] && [ -n "$session_id" ]; then
-  k_result=$("$SCRIPT_DIR/maker_state.py" "$session_id" get-k 2>/dev/null || echo '{"k":3}')
-  k_value=$(echo "$k_result" | jq -r '.k // 3')
+  k_result=$("$SCRIPT_DIR/maker_state.py" "$session_id" get-k 2>/dev/null)
+  if [ $? -eq 0 ] && [ -n "$k_result" ]; then
+    k_value=$(echo "$k_result" | jq -r '.k // empty')
+  fi
+fi
+
+# Error if k not set - user must explicitly initialize with a k value
+if [ -z "$k_value" ]; then
+  echo "🚩 MAKER ERROR: No k value found in state. You must initialize MAKER state with an explicit k value before voting." >&2
+  echo "   Run: hooks/maker_state.py \"\$session_id\" init <steps> \"<task>\" <k_value>" >&2
+  echo "   See /maker documentation for choosing k based on task requirements." >&2
+  exit 2
 fi
 
 # Check for winner

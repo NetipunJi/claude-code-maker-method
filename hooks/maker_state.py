@@ -82,12 +82,12 @@ class MAKERState:
         self._log_metric(step_data)
         return state
 
-    def get_k_value(self) -> int:
-        """Get the k value for this session."""
+    def get_k_value(self) -> int | None:
+        """Get the k value for this session. Returns None if not initialized."""
         state = self.load()
         if not state:
-            return 3  # Default fallback
-        return state.get("k", 3)
+            return None
+        return state.get("k")
 
     def get_resume_point(self) -> Optional[Dict]:
         """Get information about where to resume execution."""
@@ -208,6 +208,9 @@ def main():
 
         elif command == "get-k":
             k = state.get_k_value()
+            if k is None:
+                print(json.dumps({"error": "No k value found. Session not initialized."}), file=sys.stderr)
+                sys.exit(1)
             print(json.dumps({"k": k}))
 
         elif command == "resume":

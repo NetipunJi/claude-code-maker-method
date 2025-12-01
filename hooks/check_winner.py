@@ -11,7 +11,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
-DEFAULT_K = 3  # Default margin required to declare winner
+DEFAULT_K = 3  # Fallback only for standalone CLI usage (not used when called from hook)
 
 
 def normalize_vote(vote_str: str) -> str | None:

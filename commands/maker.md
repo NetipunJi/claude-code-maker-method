@@ -15,7 +15,7 @@ Using the `orchestrator` agent to break down the task into atomic steps...
 
 ### Phase 2: Conditional Execution
 - **Regular steps**: Execute once with single step-executor
-- **[CRITICAL] steps**: Use parallel voting with k-ahead margin consensus (k determined by setup or default k=3)
+- **[CRITICAL] steps**: Use parallel voting with k-ahead margin consensus (k explicitly chosen for this task)
 
 ### Phase 3: Automatic Vote Tracking
 The hook system will provide real-time feedback:
@@ -45,9 +45,13 @@ Where:
 - `estimated_total_steps`: Your best guess (e.g., 5, 10, 20...)
 - `k_value`: The margin threshold to use (see options below)
 
-**Option A: Use Setup Estimator (Recommended for complex tasks)**
+**Choose k value based on task requirements:**
 
-Spawn the `setup-estimator` agent to calculate optimal k:
+You have three options:
+
+**Option A: Use Setup Estimator (Recommended for unfamiliar/complex tasks)**
+
+Spawn the `setup-estimator` agent to analyze the task and calculate optimal k:
 ```
 Use Task tool with subagent_type='setup-estimator':
 "Analyze the task '$ARGUMENTS' and recommend optimal k value based on:
@@ -59,11 +63,20 @@ Output JSON with recommended_k, reasoning, and cost estimates."
 
 Extract the `recommended_k` from the response and use it when initializing state.
 
-**Option B: Use Default k=3 (Fast path)**
+**Option B: Choose k based on heuristics**
 
-Skip setup-estimator and use k=3 (provides 99%+ reliability for p>0.7).
+Select k based on task type:
+- **k=1**: Simple tasks, high confidence, cost-sensitive (90%+ reliability for p>0.8)
+- **k=3**: Moderate complexity, balanced cost/reliability (99%+ reliability for p>0.7)
+- **k=5**: High-stakes tasks, maximum reliability (99.9%+ reliability for p>0.5-0.7)
+- **k=7+**: Ultra-critical operations or very low per-step success rate
 
-Initialize state with k=3.
+**Option C: Calculate k manually**
+
+Use `hooks/maker_math.py` to calculate based on estimated per-step success rate:
+```bash
+hooks/maker_math.py recommend_k <per_step_p> <total_steps> <standard|high_stakes|fast>
+```
 
 ### Step 2: Decompose with Orchestrator
 
@@ -101,7 +114,7 @@ For each step returned by the orchestrator:
    In ONE message, use Task tool k times with IDENTICAL prompts:
    "Execute step_N: [CRITICAL] [exact description]. Output JSON: {\"step_id\": \"step_N\", \"action\": \"...\", \"result\": \"...\"}"
 
-   Where k = the value you initialized in state (from setup-estimator or default k=3)
+   Where k = the value you initialized in state (from your chosen method above)
    ```
 
 2. **Wait for hook feedback** after spawning:

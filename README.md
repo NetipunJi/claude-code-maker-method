@@ -50,10 +50,11 @@ chmod +x hooks/maker_state.py
 ```
 
 The framework will:
-1. Decompose the task into atomic steps (orchestrator marks [CRITICAL] steps)
-2. Execute regular steps once; critical steps with k=3 voting consensus
-3. Track progress automatically (resumable if interrupted)
-4. Generate reliability report with metrics
+1. Determine optimal k value for voting (via setup-estimator or manual selection)
+2. Decompose the task into atomic steps (orchestrator marks [CRITICAL] steps)
+3. Execute regular steps once; critical steps with k-ahead voting consensus
+4. Track progress automatically (resumable if interrupted)
+5. Generate reliability report with metrics
 
 ## 📊 Advanced Usage
 
@@ -127,29 +128,42 @@ hooks/maker_math.py cost_estimate 0.75 3 50 0.001
 ## 🎛️ Configuration
 
 ### Default Parameters
-- **k**: 3 (margin threshold for voting)
+- **k**: Explicitly chosen per task (no default)
 - **Token limit**: 700 tokens (~2800 chars) for red-flagging
 - **Temperature**: 0.1 (decorrelation for step-executor)
-- **Max attempts**: 9 per critical step
+- **Max attempts**: 3k per critical step (3 rounds of k votes)
 - **Voting mode**: Conditional - only [CRITICAL] steps use voting
 
-### Adjusting k
+### Choosing k
 
-Edit `hooks/check_winner.py`:
-```python
-K = 3  # Change to 5 for high-stakes tasks, 1 for fast/cheap
+You must explicitly choose k when initializing each MAKER task:
+
+**Option 1: Setup Estimator (Recommended)**
+```bash
+# Let the setup-estimator agent analyze and recommend k
+/maker <your task>
+# Follow prompts to use setup-estimator
 ```
 
-Or use setup-estimator to calculate optimal k automatically based on measured error rates.
+**Option 2: Manual Selection Based on Heuristics**
+- **k=1**: Simple tasks, high confidence, cost-sensitive
+- **k=3**: Moderate complexity, balanced cost/reliability
+- **k=5**: High-stakes tasks, maximum reliability needed
+- **k=7+**: Ultra-critical operations
+
+**Option 3: Calculate Optimal k**
+```bash
+hooks/maker_math.py recommend_k <per_step_p> <total_steps> <standard|high_stakes|fast>
+```
 
 
 ## 📈 Performance Characteristics
 
-| Task Type | Steps | Recommended k | Expected Reliability | Votes/Critical Step |
-|-----------|-------|---------------|---------------------|---------------------|
-| Simple    | <20   | 3             | 99%+                | ~4-5                |
-| Medium    | 20-100| 3-5           | 99.9%+              | ~5-6                |
-| Complex   | >100  | 5-7           | 99.99%+             | ~6-8                |
+| Task Type | Steps | Recommended k Range | Expected Reliability | Votes/Critical Step |
+|-----------|-------|---------------------|---------------------|---------------------|
+| Simple    | <20   | 1-3                 | 90-99%+             | ~2-5                |
+| Medium    | 20-100| 3-5                 | 99-99.9%+           | ~4-6                |
+| Complex   | >100  | 5-7                 | 99.9-99.99%+        | ~6-8                |
 
 **Note:** Regular (non-critical) steps execute only once. Only steps marked [CRITICAL] by the orchestrator use voting.
 
